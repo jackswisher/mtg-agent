@@ -1,0 +1,105 @@
+# Generalization experiment configurations for MTG-Causal-RL
+# These experiments test agent robustness to distribution shifts.
+
+# =============================================================================
+# Base Configuration
+# =============================================================================
+base:
+  training:
+    total_timesteps: 300_000
+    n_envs: 4
+    seed: 42
+
+  evaluation:
+    n_episodes: 100
+    n_seeds: 5
+
+# =============================================================================
+# Training Distribution
+# =============================================================================
+training_distribution:
+  deck_archetype: "mono_red_aggro"
+  opponent_archetype: "mono_red_aggro"
+  max_turns: 5
+
+# =============================================================================
+# Generalization Tests
+# =============================================================================
+generalization_tests:
+
+  # Test 1: Different opponent archetype
+  opponent_shift:
+    description: "Train vs aggro, test vs control"
+    test_environments:
+      - deck_archetype: "mono_red_aggro"
+        opponent_archetype: "mono_blue_control"
+      - deck_archetype: "mono_red_aggro"
+        opponent_archetype: "gruul_aggro"
+
+  # Test 2: Different deck archetype (zero-shot)
+  deck_shift:
+    description: "Train with aggro, test with different decks"
+    test_environments:
+      - deck_archetype: "gruul_aggro"
+        opponent_archetype: "mono_red_aggro"
+      - deck_archetype: "mono_blue_control"
+        opponent_archetype: "mono_red_aggro"
+
+  # Test 3: Different game length
+  horizon_shift:
+    description: "Train with 5 turns, test with different turn limits"
+    test_environments:
+      - deck_archetype: "mono_red_aggro"
+        opponent_archetype: "mono_red_aggro"
+        max_turns: 3
+      - deck_archetype: "mono_red_aggro"
+        opponent_archetype: "mono_red_aggro"
+        max_turns: 7
+
+  # Test 4: Reward perturbation
+  reward_perturbation:
+    description: "Test robustness to reward function changes"
+    perturbations:
+      - type: "noise"
+        scale: 0.1
+      - type: "noise"
+        scale: 0.2
+      - type: "bias"
+        value: -0.1
+      - type: "scale"
+        factor: 0.5
+
+  # Test 5: Opponent skill shift
+  opponent_skill:
+    description: "Test against opponents of varying skill"
+    opponent_types:
+      - type: "random"
+      - type: "heuristic"
+        aggression: 0.5
+      - type: "heuristic"
+        aggression: 1.0
+      - type: "ppo"
+        trained_timesteps: 100_000
+
+# =============================================================================
+# Metrics for Generalization
+# =============================================================================
+metrics:
+  - win_rate
+  - win_rate_drop  # Compared to training distribution
+  - mean_reward
+  - reward_drop
+  - sample_efficiency_transfer
+
+# =============================================================================
+# Analysis
+# =============================================================================
+analysis:
+  # Compare generalization gap between agents
+  compare_generalization_gap: true
+
+  # Correlation between causal understanding and generalization
+  causal_generalization_correlation: true
+
+  # Plot learning curves across distributions
+  plot_transfer_curves: true

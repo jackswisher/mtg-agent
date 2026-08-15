@@ -1,0 +1,85 @@
+# Canonical 6-point CGFA-PPO ablation suite.
+#
+# Each variant maps onto an existing ``agent_type`` in the agent registry
+# (mtg.training.train.AGENT_REGISTRY) plus a dictionary of constructor
+# kwargs.  This file is the authoritative source for the canonical
+# ablation runs and is loaded by:
+#
+#   - mtg.experiments.ablation.load_ablation_variants(...)
+#   - scripts/research/ablation_sweep.py (the runner CLI)
+#
+# To add a new variant, append it to the ``variants`` list with a
+# unique ``name``; the runner will pick it up automatically.
+
+variants:
+
+  - name: ppo
+    agent_type: ppo
+    agent_kwargs: {}
+    description: >-
+      Vanilla MaskablePPO with no causal world model and no per-factor
+      value decomposition.  Lower bound for the suite.
+
+  - name: causal
+    agent_type: causal
+    agent_kwargs: {}
+    description: >-
+      PPO + Causal World Model auxiliary losses.  Tests whether
+      auxiliary causal supervision alone (without factored advantages)
+      is enough to beat vanilla PPO.
+
+  - name: cgfa_scalar_only
+    agent_type: cgfa_scalar_only
+    agent_kwargs: {}
+    description: >-
+      Architecture-matched scalar PPO. Per-factor value heads and the
+      residual-gate MLP are still present in the network, but every
+      CGFA loss coefficient is pinned to zero (factor_value_coef=0,
+      intervention_calibration_coef=0, gate_entropy_coef=0,
+      learnable_gate=False, cgfa_alpha=0).  Controls for parameter
+      count so any CGFA win cannot be attributed to extra capacity.
+
+  - name: cgfa_no_gate
+    agent_type: cgfa
+    agent_kwargs:
+      cgfa_alpha: 1.0
+      learnable_gate: false
+      state_conditional_gate: false
+      intervention_calibration_coef: 0.1
+    description: >-
+      CGFA with the residual gate frozen at alpha=1 (pure factored
+      advantage, no scalar mixing).  Tests whether per-state advantage
+      mixing is necessary.
+
+  - name: cgfa_no_cal
+    agent_type: cgfa
+    agent_kwargs:
+      cgfa_alpha: 0.5
+      learnable_gate: true
+      state_conditional_gate: true
+      intervention_calibration_coef: 0.0
+    description: >-
+      CGFA with intervention-calibration loss disabled.  Tests whether
+      SCM-alignment of per-factor advantages (Pearson maximisation
+      against eps_k) is necessary.
+
+  - name: cgfa_full
+    agent_type: cgfa
+    agent_kwargs:
+      cgfa_alpha: 0.5
+      learnable_gate: true
+      state_conditional_gate: true
+      intervention_calibration_coef: 0.1
+    description: >-
+      Full CGFA-PPO: per-factor decomposition + state-conditional
+      residual gate + intervention calibration.  The proposed method.
+
+# Metrics reported by the aggregation step.  Win rate is the headline,
+# the rest are diagnostic.
+metrics:
+  - win_rate
+  - mean_reward
+  - sample_efficiency
+  # CGFA-specific (only populated for ``cgfa_*`` variants):
+  - cgfa/gate/mean
+  - cgfa/factor_corr/mean

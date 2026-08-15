@@ -1,0 +1,80 @@
+# Main experiment configuration for MTG-Causal-RL
+# This config reproduces the main results from the paper.
+
+# =============================================================================
+# Environment Configuration
+# =============================================================================
+environment:
+  deck_archetype: "mono_red_aggro"
+  opponent_archetype: "mono_red_aggro"  # Self-play
+  max_turns: 5
+  reward_type: "shaped"
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  total_timesteps: 500_000
+  n_envs: 4
+  seed: 42
+
+  # Logging
+  log_dir: "results/logs"
+  checkpoint_dir: "results/checkpoints"
+  log_interval: 100
+  save_interval: 50_000
+  eval_interval: 25_000
+  eval_episodes: 50
+
+# =============================================================================
+# Agent Configurations
+# =============================================================================
+agents:
+  random:
+    type: "random"
+    kwargs: {}
+
+  heuristic:
+    type: "heuristic"
+    kwargs:
+      aggression: 0.8
+
+  ppo:
+    type: "ppo"
+    kwargs:
+      learning_rate: 0.0003
+      n_steps: 2048
+      batch_size: 64
+      n_epochs: 10
+      gamma: 0.99
+      gae_lambda: 0.95
+      clip_range: 0.2
+      ent_coef: 0.01
+      vf_coef: 0.5
+      max_grad_norm: 0.5
+      policy_kwargs:
+        net_arch: [256, 256]
+
+  causal:
+    type: "causal"
+    kwargs:
+      planning_depth: 3
+      n_simulations: 10
+      exploration_rate: 0.1
+      causal_weight: 0.6
+
+# =============================================================================
+# Evaluation Configuration
+# =============================================================================
+evaluation:
+  n_episodes: 200
+  n_seeds: 5
+  deterministic: true
+
+# =============================================================================
+# Experiment Metadata
+# =============================================================================
+experiment:
+  name: "main_comparison"
+  description: "Main comparison of all agents on the MTG benchmark"
+  version: "1.0"
