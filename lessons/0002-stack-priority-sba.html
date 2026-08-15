@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 02 — Where this engine stops being Magic</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Lesson 02 · mtg-agent</p>
+  <h1>Where this engine stops being Magic</h1>
+  <p class="standfirst">You know the rules. The engine knows most of them. The gap
+  is where your agent will learn things that aren't true.</p>
+</header>
+
+<p>An agent trained against a rules engine learns <em>that engine</em>, not Magic.
+Every divergence is a false lesson baked into the policy. Before you spend GPU
+hours, you need to know which ones are here.</p>
+
+<p>Three below, each verified by running the code. Start with the good news.</p>
+
+<h2>1. The stack and priority are right</h2>
+
+<p><code>pass_priority</code> (<code>rules.py:3905</code>) is a faithful
+implementation:</p>
+
+<pre><code>state.passed_priority[state.priority_player] = True
+
+if state.both_players_passed():
+    if state.stack:
+        state = self.resolve_top_of_stack(state)   # ONE object
+        state.reset_priority()                     # then priority resets
+    else:
+        state = self.advance_phase(state)
+else:
+    state.switch_priority()</code></pre>
+
+<p>One object resolves, then both players get priority again — CR 117.3b/608.
+Not "resolve the whole stack," which is the usual shortcut in toy engines.
+Counterspells genuinely work; responses genuinely work.</p>
+
+<p>The eight priority windows in <code>PRIORITY_PHASES</code> match real Magic,
+with two small omissions: no priority in the combat damage step, and no
+end-of-combat step. Neither will hurt you soon.</p>
+
+<div class="note">
+  <span class="label">Why this matters for the mission</span>
+  <p>The hard part of a Magic engine — the stack — is the part this repo got
+  right. That's a meaningful argument for building on it rather than replacing
+  it. Hold that thought until lesson 4.</p>
+</div>
+
+<h2>2. There are two damage systems, and they don't talk</h2>
+
+<p>Combat damage lives in a local dictionary, created fresh inside
+<code>_execute_combat_damage</code> and thrown away when combat ends
+(<code>rules.py:1389</code>):</p>
+
+<pre><code>damage_marked: dict[int, int] = {}   # card_id -> damage taken</code></pre>
+
+<p>Spell damage lives somewhere else entirely — an attribute on the card
+(<code>rules.py:3463</code>):</p>
+
+<pre><code>target_creature.damage_marked = getattr(target_creature, "damage_marked", 0) + card.deals_damage</code></pre>
+
+<p>Same name. Different objects. <strong>Neither one ever reads the other.</strong>
+Nor does <code>_get_effective_power_toughness</code> consult either.</p>
+
+<p>The consequence, which you can run:</p>
+
+<pre><code>uv run python -c "
+import random
+from mtg.env.rules import RulesEngine
+from mtg.env.card_definitions import create_card_instance
+from mtg.env.deck_archetypes import get_archetype
+
+eng = RulesEngine(random.Random(0))
+mk = lambda: get_archetype('mono_red_aggro').build_deck()
+
+def scenario(pre_damage):
+    st = eng.initialize_game(mk(), mk())
+    atk = create_card_instance('Phoenix Chick', 9003)   # 1/1
+    atk.summoning_sick = False
+    dfn = create_card_instance('Goblin Guide', 9004)    # 2/2
+    st.players[0].battlefield.append(atk)
+    st.players[1].battlefield.append(dfn)
+    dfn.damage_marked = pre_damage
+    st.active_player = 0
+    st = eng.declare_attackers(st, [atk.card_id])
+    st = eng.declare_blockers(st, {atk.card_id: dfn.card_id})
+    return any(c.card_id == dfn.card_id for c in st.players[1].battlefield)
+
+print('blocker at 0 prior damage -> survives:', scenario(0))
+print('blocker at 1 prior damage -> survives:', scenario(1))
+"</code></pre>
+
+<pre><code>blocker at 0 prior damage -> survives: True
+blocker at 1 prior damage -> survives: True   &lt;- should be False</code></pre>
+
+<p>Shock the 2/2, then attack it with a 1/1. One plus one is two, which is lethal
+on a two-toughness creature. It lives.</p>
+
+<p class="caption">Verified 2026-08-15 on <code>main</code>.</p>
+
+<h2>3. Damage never wears off</h2>
+
+<p>CR 514.2: damage is removed from all permanents during each cleanup step. The
+cleanup code has a comment saying it does this:</p>
+
+<pre><code># Clear damage and temporary effects (Prowess, pump spells)</code></pre>
+
+<p>It clears the temporary effects. It does not clear the damage.</p>
+
+<pre><code>c.damage_marked = 1
+for i in range(3):
+    st = eng._execute_cleanup(st)
+# damage_marked after 3 cleanup steps: 1</code></pre>
+
+<p>So a creature Shocked on turn 3 is still carrying that point on turn 9. Combine
+with divergence 2 and you get an engine where creatures are permanently fragile to
+spells and completely amnesiac about combat — <em>opposite</em> errors in the two
+systems.</p>
+
+<div class="note warn">
+  <span class="label">What your agent learns from this</span>
+  <p>That chip damage from burn is a durable investment (it isn't) and that
+  chip damage in combat is worthless (it isn't). Both distortions push a policy
+  toward burn-to-the-face and away from combat math — on a benchmark whose
+  flagship archetype is Mono-Red Aggro.</p>
+</div>
+
+<h2>4. State-based actions run in one place</h2>
+
+<p>CR 704.3: SBAs are checked <em>whenever a player would receive priority</em>.
+Here, <code>_check_state_based_actions</code> has exactly one call site — inside
+combat damage:</p>
+
+<pre><code>grep -n "_check_state_based_actions" mtg/env/rules.py
+# 1440:  state = self._check_state_based_actions(state, deaths)   &lt;- the only call
+# 1791:  def _check_state_based_actions(</code></pre>
+
+<p>Outside combat, lethal conditions are caught by ad-hoc inline checks at each
+call site instead — which is why a Shock that kills still works
+(<code>rules.py:3467</code> checks lethal right there). It functions, but every new
+card effect has to remember to re-implement the check. That's the maintenance
+tax you'd inherit when scaling the card pool.</p>
+
+<p>The docstring also advertises five checks:</p>
+
+<table>
+<thead><tr><th>Claimed in docstring</th><th>Actually implemented</th></tr></thead>
+<tbody>
+<tr><td>Creatures with 0 or less toughness die</td><td>Yes</td></tr>
+<tr><td>Players at 0 or less life lose</td><td>Yes</td></tr>
+<tr><td>Creatures with lethal damage die</td><td>No</td></tr>
+<tr><td>+1/+1 and −1/−1 counters cancel</td><td>No</td></tr>
+<tr><td>Auras attached to nothing die</td><td>No</td></tr>
+</tbody>
+</table>
+
+<p>Read the body, not the docstring. That holds generally in this file.</p>
+
+<h2>Check yourself</h2>
+
+<p class="score"></p>
+
+<div class="quiz" data-answer="0">
+  <p class="q"><span class="num">Q1</span>You Shock a 3/3, then block it with a
+  2/2 the same turn. In this engine, what happens to the 3/3?</p>
+  <button class="opt">It survives — the two damage sources never combine</button>
+  <button class="opt">It dies — three total damage is lethal on it</button>
+  <button class="opt">It survives — but only until the cleanup step ends</button>
+  <button class="opt">It dies — but only after the next untap step</button>
+  <div class="fb"><p>Survives. Spell damage sits on <code>card.damage_marked</code>;
+  combat damage sits in a local dict inside <code>_execute_combat_damage</code>.
+  Neither reads the other, so the engine sees 2 combat damage on a 3-toughness
+  creature and calls it fine.</p></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q"><span class="num">Q2</span>Which behaviour did this engine get
+  <em>right</em> relative to the Comprehensive Rules?</p>
+  <button class="opt">Damage clears from creatures during the cleanup step</button>
+  <button class="opt">State-based actions run whenever a player gets priority</button>
+  <button class="opt">Marked damage accumulates across combat and spells</button>
+  <button class="opt">One stack object resolves, then priority resets</button>
+  <div class="fb"><p>The stack. <code>pass_priority</code> resolves a single object
+  and calls <code>reset_priority()</code>, exactly as CR 117.3b requires. The
+  other three are the divergences from this lesson.</p></div>
+</div>
+
+<div class="recall">
+  <p><strong>Recall.</strong> Without scrolling: name the two places damage is
+  stored in this engine, and say why storing it twice is the bug rather than a
+  detail.</p>
+  <textarea placeholder="from memory..."></textarea>
+  <button class="reveal">Show answer</button>
+  <div class="answer">
+    <p>A local <code>damage_marked</code> dict inside
+    <code>_execute_combat_damage</code> (discarded when combat ends), and a
+    <code>damage_marked</code> attribute on <code>Card</code> written by spell
+    resolution (never cleared).</p>
+    <p>Two sources of truth for one game concept. Lethal is a question about
+    <em>total</em> damage, so any split representation answers it wrong unless
+    every call site remembers to sum both — and none do. The fix is one
+    persistent field on <code>Card</code>, cleared at cleanup, read by a real
+    SBA check.</p>
+  </div>
+</div>
+
+<footer class="footer">
+  <h3>Read this next</h3>
+  <p><strong>Primary source:</strong>
+  <a href="https://magic.wizards.com/en/rules">Comprehensive Rules</a> §704
+  (state-based actions) and §514 (cleanup step). Ten minutes. §704.5 is the
+  canonical list this engine's docstring was reaching for.</p>
+
+  <h3>Workspace</h3>
+  <ul>
+    <li><a href="../reference/engine-divergences.html">Reference — known engine divergences</a>
+      (the running list; add to it as you find more)</li>
+    <li><a href="../reference/repo-map.html">Reference — codebase map</a></li>
+    <li><a href="0001-the-loop.html">Lesson 01 — The loop you are going to optimise</a></li>
+  </ul>
+
+  <h3>Coming up</h3>
+  <ul>
+    <li><strong>03</strong> — Fixing divergence 2 test-first: one persistent damage
+      field, a real SBA check, and the regression test that proves it. Your first
+      commit to the engine.</li>
+    <li><strong>04</strong> — Can 4,000 lines of hand-written rules reach real meta
+      decks, or do you need Forge/XMage?</li>
+  </ul>
+
+  <p class="ask">Ask me anything here — including whether these are worth fixing
+  before you train, which is a genuinely open question and not one I'd answer for
+  you unprompted.</p>
+</footer>
+
+</div>
+</body>
+</html>

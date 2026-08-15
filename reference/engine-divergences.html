@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — known engine divergences</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Reference · mtg-agent</p>
+  <h1>Known engine divergences</h1>
+  <p class="standfirst">Where <code>rules.py</code> departs from the Comprehensive
+  Rules. A running list — append as you find more.</p>
+</header>
+
+<p>Every entry here is a false lesson available to a trained policy. Status is
+<strong>open</strong> until a regression test pins the correct behaviour.</p>
+
+<h2>Open</h2>
+
+<table>
+<thead><tr><th>#</th><th>Divergence</th><th>CR</th><th>Site</th></tr></thead>
+<tbody>
+<tr>
+  <td>D1</td>
+  <td><strong>Two damage systems.</strong> Combat damage is a local dict in
+  <code>_execute_combat_damage</code>; spell damage is a <code>Card</code>
+  attribute. Neither reads the other, so damage from different sources never
+  sums to lethal.</td>
+  <td>510.1a, 704.5g</td>
+  <td><code>rules.py:1389</code>, <code>rules.py:3463</code></td>
+</tr>
+<tr>
+  <td>D2</td>
+  <td><strong>Damage never wears off.</strong> Cleanup clears temporary P/T but
+  not <code>damage_marked</code>, despite the comment claiming it does. Spell
+  damage persists for the whole game.</td>
+  <td>514.2</td>
+  <td><code>rules.py:1840</code> (<code>_execute_cleanup</code>)</td>
+</tr>
+<tr>
+  <td>D3</td>
+  <td><strong>SBAs run only in combat.</strong> One call site, inside combat
+  damage. Elsewhere, lethal is caught by ad-hoc inline checks that each new card
+  effect must remember to re-implement.</td>
+  <td>704.3</td>
+  <td><code>rules.py:1440</code> (only caller)</td>
+</tr>
+<tr>
+  <td>D4</td>
+  <td><strong>SBA docstring overstates the body.</strong> Advertises 5 checks,
+  implements 2. Missing: lethal damage, counter annihilation, unattached auras.</td>
+  <td>704.5</td>
+  <td><code>rules.py:1791</code></td>
+</tr>
+<tr>
+  <td>D5</td>
+  <td><strong>No layer system.</strong>
+  <code>_get_effective_power_toughness</code> applies base, counters, and
+  <code>current_power</code> deltas in a fixed ad-hoc order. Fine for the current
+  56 cards; breaks on any real layer interaction.</td>
+  <td>613</td>
+  <td><code>rules.py:2438</code></td>
+</tr>
+<tr>
+  <td>D6</td>
+  <td><strong>Minor:</strong> no priority window in the combat damage step, and no
+  end-of-combat step.</td>
+  <td>510.4, 511</td>
+  <td><code>rules.py:67</code> (<code>PRIORITY_PHASES</code>)</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Verified correct</h2>
+
+<p>Worth recording, so nobody "fixes" them:</p>
+
+<table>
+<thead><tr><th>Behaviour</th><th>CR</th><th>Site</th></tr></thead>
+<tbody>
+<tr><td>One stack object resolves, then priority resets to the active player</td>
+    <td>117.3b, 608</td><td><code>rules.py:3905</code></td></tr>
+<tr><td>Counterspells require a spell on the stack</td>
+    <td>—</td><td><code>rules.py:2007</code></td></tr>
+<tr><td>Sorcery speed restricted to the active player's main phases with an empty stack</td>
+    <td>117.1a</td><td><code>rules.py:78</code>, <code>:908</code></td></tr>
+<tr><td>First strike gets its own damage step before regular damage</td>
+    <td>510.4</td><td><code>rules.py:1424</code></td></tr>
+</tbody>
+</table>
+
+<h2>Reproductions</h2>
+
+<p>D1 — a 1/1 attacks into a 2/2 already carrying 1 spell damage:</p>
+
+<pre><code>import random
+from mtg.env.rules import RulesEngine
+from mtg.env.card_definitions import create_card_instance
+from mtg.env.deck_archetypes import get_archetype
+
+eng = RulesEngine(random.Random(0))
+mk = lambda: get_archetype('mono_red_aggro').build_deck()
+
+st = eng.initialize_game(mk(), mk())
+atk = create_card_instance('Phoenix Chick', 9003); atk.summoning_sick = False
+dfn = create_card_instance('Goblin Guide', 9004)
+st.players[0].battlefield.append(atk)
+st.players[1].battlefield.append(dfn)
+dfn.damage_marked = 1
+st.active_player = 0
+st = eng.declare_attackers(st, [atk.card_id])
+st = eng.declare_blockers(st, {atk.card_id: dfn.card_id})
+
+assert not any(c.card_id == dfn.card_id for c in st.players[1].battlefield), \
+    "D1: blocker should have died to 1 spell + 1 combat damage"
+# currently FAILS - the blocker survives</code></pre>
+
+<p>D2 — damage survives the cleanup step:</p>
+
+<pre><code>c.damage_marked = 1
+for _ in range(3):
+    st = eng._execute_cleanup(st)
+assert getattr(c, 'damage_marked', 0) == 0, "D2: cleanup should remove damage"
+# currently FAILS - still 1</code></pre>
+
+<h2>Suggested fix order</h2>
+
+<p>D1, D2, and D3 are one fix, not three: a single persistent <code>damage</code>
+field on <code>Card</code>, cleared in <code>_execute_cleanup</code>, with lethal
+checked by <code>_check_state_based_actions</code> called wherever a player would
+gain priority. D4 falls out of that. D5 is a much larger job and only matters once
+the card pool grows.</p>
+
+<footer class="footer">
+  <p><strong>Lessons using this reference:</strong>
+    <a href="../lessons/0002-stack-priority-sba.html">0002 — Where this engine stops being Magic</a></p>
+  <p><a href="repo-map.html">Codebase map</a> ·
+     <a href="../MISSION.md">Mission</a> ·
+     <a href="../RESOURCES.md">Resources</a></p>
+  <p class="caption">All entries verified against <code>main</code> on 2026-08-15.</p>
+</footer>
+
+</div>
+</body>
+</html>

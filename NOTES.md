@@ -14,6 +14,11 @@
 
 ## Open threads
 
+- **Engine divergences found in lesson 2** (see `reference/engine-divergences.html`).
+  D1/D2/D3 are one fix: a single persistent damage field on `Card`, cleared at
+  cleanup, read by a real SBA check. Candidate for lesson 3 as a TDD exercise and
+  the learner's first engine commit. Not yet raised as GitHub issues — ask first.
+
 - **The pivotal question:** can a hand-written 4k-line engine over 56 cards scale
   to real meta decks? Dedicated research session. Likely lesson 4-6.
 - Repo is a clone of MTG-Causal-RL (arXiv 2605.06066). The causal/CGFA machinery
