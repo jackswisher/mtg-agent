@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lesson 01 — The loop you are going to optimise</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+<script src="../assets/quiz.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Lesson 01 · mtg-agent</p>
+  <h1>The loop you are going to optimise</h1>
+  <p class="standfirst">Every hour on this project goes into making one five-line
+  loop produce better numbers.</p>
+</header>
+
+<p>You know Magic. You know Python. You don't yet know <strong>Gymnasium</strong> —
+and Gymnasium is the shape of this repo. Every architectural oddity in
+<code>mtg-agent</code> exists to satisfy a contract that fits on one page.</p>
+
+<h2>1. The contract</h2>
+
+<p>A Gymnasium <code>Env</code> promises four things
+(<a href="https://gymnasium.farama.org/api/env/">Env API docs</a>):</p>
+
+<table>
+<thead><tr><th>Member</th><th>Promise</th></tr></thead>
+<tbody>
+<tr><td><code>observation_space</code></td><td>The shape of what the agent sees</td></tr>
+<tr><td><code>action_space</code></td><td>The shape of what the agent may do</td></tr>
+<tr><td><code>reset(seed)</code></td><td>Start an episode → <code>(obs, info)</code></td></tr>
+<tr><td><code>step(action)</code></td><td>Advance → <code>(obs, reward, terminated, truncated, info)</code></td></tr>
+</tbody>
+</table>
+
+<p>That's it. Everything else — PPO, vectorised envs, callbacks, the whole
+Stable-Baselines3 stack — is machinery bolted onto those four members.</p>
+
+<div class="note">
+  <span class="label">The one gotcha for newcomers</span>
+  <p><code>terminated</code> and <code>truncated</code> are <strong>not</strong> the
+  same thing. <code>terminated</code> means the episode reached a real end state —
+  someone's life hit zero. <code>truncated</code> means an artificial cutoff fired,
+  here the <code>max_turns</code> limit. Old Gym had a single <code>done</code> flag
+  and conflated them; Gymnasium split them in v0.26 because the end-of-episode value
+  bootstrap is mathematically different in each case
+  (<a href="https://gymnasium.farama.org/introduction/migration_guide/">migration guide</a>).
+  A turn-limit truncation is not a loss. Train as though it were and you teach your
+  agent that time running out is a defeat to avoid — exactly wrong for a control deck.</p>
+</div>
+
+<h2>2. What this repo puts in the slots</h2>
+
+<p>Run this:</p>
+
+<pre><code>uv run python -c "
+from mtg.env import MTGEnv
+env = MTGEnv(deck_archetype='mono_red_aggro',
+             opponent_archetype='azorius_control',
+             max_turns=5)
+print(env.observation_space)
+print(env.action_space)
+obs, info = env.reset(seed=42)
+print(obs.shape, info['action_mask'].sum(), 'legal actions')
+"</code></pre>
+
+<p>You get:</p>
+
+<pre><code>Box(-inf, inf, (3077,), float32)
+Discrete(478)
+(3077,) 2 legal actions</code></pre>
+
+<table>
+<thead><tr><th>Slot</th><th>Value</th><th>Built by</th></tr></thead>
+<tbody>
+<tr><td>observation</td><td>3077 float32 — game state, plus 5 zones × 20 cards × 34 features</td><td><code>mtg/env/observation.py</code></td></tr>
+<tr><td>action</td><td>one <code>int</code> in <code>[0, 478)</code></td><td><code>mtg/env/action_mask.py</code></td></tr>
+<tr><td>reward</td><td>scalar; <code>sparse</code> / <code>shaped</code> / <code>dense</code></td><td><code>mtg/env/reward.py</code></td></tr>
+<tr><td>info</td><td>~50 keys of human-readable state <em>plus</em> <code>action_mask</code></td><td><code>mtg/env/mtg_env.py</code></td></tr>
+</tbody>
+</table>
+
+<p><strong>2 legal actions.</strong> At <code>reset()</code> you are in the mulligan
+step, and the only things you may do are <code>KEEP_HAND</code> (1) and
+<code>MULLIGAN</code> (2). The other 476 are illegal.</p>
+
+<h2>3. The action mask is the whole game</h2>
+
+<p>Magic has an enormous nominal action space and a tiny real one. You can name
+478 things; at any given instant maybe three are legal. Gymnasium has no concept
+of this — <code>Discrete(478)</code> means "any int from 0 to 477, always."</p>
+
+<p>So the repo publishes a binary legality vector in <code>info</code>, and the
+policy multiplies its logits by that vector before sampling. Illegal actions get
+probability zero, and the gradient never flows through them
+(<a href="https://sb3-contrib.readthedocs.io/en/master/modules/ppo_mask.html">MaskablePPO</a>).</p>
+
+<pre><code>obs, info = env.reset(seed=42)
+mask = info["action_mask"]        # int8, shape (478,)
+
+import numpy as np
+np.flatnonzero(mask)              # array([1, 2])  <- KEEP_HAND, MULLIGAN</code></pre>
+
+<p class="caption">The mask lives in <code>info</code>, not in the observation.
+It is metadata about what is <em>allowed</em>, not information about the
+<em>position</em>.</p>
+
+<div class="note warn">
+  <span class="label">The uncomfortable fact</span>
+  <p>I measured 20 random episodes on the default settings. Across
+  <strong>4,093 steps, 49% had exactly one legal action</strong> — mean 2.81, max 11.
+  Turn on the simplification flags (<code>auto_resolve=True</code>) and it gets
+  starker: 72% of steps offer a single choice, mean 1.74.</p>
+  <p>Half or more of every rollout is the agent being marched through
+  <code>PASS</code> with no decision to make, consuming training budget and
+  contributing nothing. A property of the environment, not a bug — but the first
+  thing to look at when training feels slow.</p>
+</div>
+
+<p>Reproduce it yourself:</p>
+
+<pre><code>uv run python -c "
+import numpy as np, collections
+from mtg.env import MTGEnv
+from mtg.agents import RandomAgent
+env = MTGEnv(deck_archetype='mono_red_aggro',
+             opponent_archetype='azorius_control', max_turns=10)
+agent, counts = RandomAgent(seed=0), []
+for ep in range(20):
+    obs, info = env.reset(seed=ep)
+    done = False
+    while not done:
+        counts.append(int(info['action_mask'].sum()))
+        a = agent.select_action(obs, info['action_mask'], info)
+        obs, r, term, trunc, info = env.step(a)
+        done = term or trunc
+c = collections.Counter(counts)
+print('steps', len(counts), '| mean %.2f' % np.mean(counts),
+      '| single-choice %.0f%%' % (100 * c[1] / len(counts)))
+"</code></pre>
+
+<h2>4. The loop</h2>
+
+<p>What training optimises, what evaluation measures, and what every workflow in
+the README ultimately calls:</p>
+
+<pre><code>obs, info = env.reset(seed=42)
+done = False
+
+while not done:
+    action = agent.select_action(obs, info["action_mask"], info)
+    obs, reward, terminated, truncated, info = env.step(action)
+    done = terminated or truncated</code></pre>
+
+<p>Five lines. The mission — a bot that plays meta decks well — is making
+<code>select_action</code> better, and making the <code>obs</code>,
+<code>mask</code>, and <code>reward</code> flowing into it faithful to real Magic.</p>
+
+<h2>Check yourself</h2>
+
+<p class="score"></p>
+
+<div class="quiz" data-answer="2">
+  <p class="q"><span class="num">Q1</span>Your control deck survives to the
+  <code>max_turns</code> cutoff without either player dying. What does
+  <code>step()</code> return?</p>
+  <button class="opt">terminated=True, truncated=False</button>
+  <button class="opt">terminated=True, truncated=True</button>
+  <button class="opt">terminated=False, truncated=True</button>
+  <button class="opt">terminated=False, truncated=False</button>
+  <div class="fb"><p>Truncation — an artificial time limit fired.
+  <code>terminated</code> is reserved for a real terminal position, which in MTG
+  means a player lost. Getting this backwards poisons the value bootstrap at
+  episode end.</p></div>
+</div>
+
+<div class="quiz" data-answer="1">
+  <p class="q"><span class="num">Q2</span>Where does an agent read the list of
+  currently legal actions?</p>
+  <button class="opt">From the observation vector returned by step</button>
+  <button class="opt">From the info dict returned by step</button>
+  <button class="opt">From the action space attribute on env</button>
+  <button class="opt">From the reward signal returned by step</button>
+  <div class="fb"><p><code>info["action_mask"]</code>, an int8 array of shape
+  (478,). <code>env.action_space</code> only ever reports
+  <code>Discrete(478)</code>. Legality is per-state, so it travels in
+  <code>info</code>.</p></div>
+</div>
+
+<div class="quiz" data-answer="3">
+  <p class="q"><span class="num">Q3</span>You add a card whose effect the engine
+  has never modelled. Which file holds the code that makes it actually
+  <em>do</em> something on resolution?</p>
+  <button class="opt">mtg/env/observation.py builds the state</button>
+  <button class="opt">mtg/env/action_mask.py builds the mask</button>
+  <button class="opt">mtg/env/card_definitions.py holds the pool</button>
+  <button class="opt">mtg/env/rules.py in _resolve_spell</button>
+  <div class="fb"><p><code>card_definitions.py</code> declares that a card exists
+  and what it costs. <code>rules.py → _resolve_spell</code> is the ~470-line switch
+  deciding what happens on resolution. Adding a card touches both.</p></div>
+</div>
+
+<div class="recall">
+  <p><strong>Recall, no scrolling.</strong> Write out the five values
+  <code>step()</code> returns, in order, and say in one line what each is for.</p>
+  <textarea placeholder="from memory..."></textarea>
+  <button class="reveal">Show answer</button>
+  <div class="answer">
+    <p><code>obs</code> — what the agent sees next (3077 floats).<br>
+    <code>reward</code> — scalar feedback for the action just taken.<br>
+    <code>terminated</code> — the game genuinely ended (someone lost).<br>
+    <code>truncated</code> — an artificial limit fired (<code>max_turns</code>).<br>
+    <code>info</code> — everything else, critically <code>action_mask</code>.</p>
+    <p>If you wrote <code>done</code> instead of the two flags, you learned Gym,
+    not Gymnasium. Fix that now; it will bite you at every episode boundary.</p>
+  </div>
+</div>
+
+<footer class="footer">
+  <h3>Read this next</h3>
+  <p><strong>Primary source:</strong>
+  <a href="https://gymnasium.farama.org/introduction/basic_usage/">Gymnasium — Basic Usage</a>.
+  Fifteen minutes, official. Covers <code>reset</code>/<code>step</code>, spaces,
+  and the terminated/truncated split. Read it before lesson 2.</p>
+
+  <h3>Workspace</h3>
+  <ul>
+    <li><a href="../reference/repo-map.html">Reference — codebase map</a>
+      (which file to open when)</li>
+    <li><a href="../MISSION.md">MISSION.md</a> ·
+        <a href="../RESOURCES.md">RESOURCES.md</a></li>
+  </ul>
+
+  <h3>Coming up</h3>
+  <ul>
+    <li><strong>02</strong> — Inside <code>rules.py</code>: how this engine models
+      the stack, priority, and state-based actions, and the three places it
+      knowingly diverges from the Comprehensive Rules.</li>
+    <li><strong>03</strong> — Reading a training run: what MaskablePPO actually
+      logs and which numbers mean progress.</li>
+    <li><strong>04</strong> — The pivotal question: can 4,000 lines of hand-written
+      rules reach real meta decks, or do you need Forge/XMage?</li>
+  </ul>
+
+  <p class="ask">Ask me anything that stayed fuzzy — what a policy gradient is,
+  why masking beats penalising illegal moves, what <code>Box</code> means. The
+  questions tell me where to aim lesson 2.</p>
+</footer>
+
+</div>
+</body>
+</html>

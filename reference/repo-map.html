@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference — mtg-agent codebase map</title>
+<link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Reference · mtg-agent</p>
+  <h1>Codebase map</h1>
+  <p class="standfirst">Which file to open, and when.</p>
+</header>
+
+<h2>The four layers</h2>
+
+<pre><code>scripts/         CLI entry points  (mtg-train, mtg-eval, mtg-gameplay, mtg-research)
+   │
+mtg/training/    training loops, league play, callbacks
+mtg/agents/      policies: random, heuristic, PPO, causal
+   │
+mtg/env/         ── GYMNASIUM BOUNDARY ──────────────────────────
+   │  mtg_env.py         the Env facade: reset() / step()
+   │  observation.py     GameState -> 3077 floats
+   │  action_mask.py     GameState -> 478 legal bits; int -> engine call
+   │  reward.py          GameState delta -> scalar
+   │
+   │  rules.py           THE GAME ITSELF
+   │  card_definitions.py   the 56-card pool + Card/ManaCost/Trigger types
+   │  deck_archetypes.py    the 5 decklists
+   │
+mtg/causal/      the research layer (SCM). Inherited from the paper.
+mtg/simulation/  agent-vs-agent game loop for eval + HTML replays</code></pre>
+
+<h2>Which file do I open?</h2>
+
+<table>
+<thead><tr><th>I want to…</th><th>Open</th></tr></thead>
+<tbody>
+<tr><td>Change how a card behaves</td><td><code>mtg/env/rules.py</code> → <code>_resolve_spell</code></td></tr>
+<tr><td>Add a card</td><td><code>mtg/env/card_definitions.py</code> → <code>CardRegistry</code></td></tr>
+<tr><td>Change a decklist</td><td><code>mtg/env/deck_archetypes.py</code></td></tr>
+<tr><td>Change what the agent can <em>do</em></td><td><code>mtg/env/action_mask.py</code></td></tr>
+<tr><td>Change what the agent can <em>see</em></td><td><code>mtg/env/observation.py</code></td></tr>
+<tr><td>Change the reward</td><td><code>mtg/env/reward.py</code></td></tr>
+<tr><td>Change how an action int maps to a game move</td><td><code>mtg/env/mtg_env.py</code> → <code>step()</code></td></tr>
+<tr><td>Add a policy</td><td><code>mtg/agents/</code> + <code>register_agent()</code></td></tr>
+<tr><td>Change training hyperparameters</td><td><code>mtg/training/train.py</code></td></tr>
+</tbody>
+</table>
+
+<h2><code>rules.py</code> — anatomy of the 4,193 lines</h2>
+
+<table>
+<thead><tr><th>Lines</th><th>Symbol</th><th>What it holds</th></tr></thead>
+<tbody>
+<tr><td>26–117</td><td><code>GamePhase</code>, <code>ActionType</code>, <code>StackItem</code>, <code>TargetRef</code></td><td>The vocabulary</td></tr>
+<tr><td>119–281</td><td><code>PlayerState</code></td><td>One player: zones, life, mana, land drop</td></tr>
+<tr><td>319–826</td><td><code>TriggerEngine</code></td><td>ETB / attack / death / cast triggers; token creation</td></tr>
+<tr><td>828–998</td><td><code>GameState</code></td><td>Two players + turn, phase, priority, stack, action log</td></tr>
+<tr><td>1000–4193</td><td><code>RulesEngine</code></td><td>Every verb in the game</td></tr>
+</tbody>
+</table>
+
+<h3>RulesEngine, by job</h3>
+
+<table>
+<thead><tr><th>Job</th><th>Methods</th></tr></thead>
+<tbody>
+<tr><td>Setup</td><td><code>initialize_game</code>, <code>execute_mulligan</code>, <code>_apply_bottom_cards</code></td></tr>
+<tr><td>Turn structure</td><td><code>advance_phase</code>, <code>_execute_beginning_of_turn</code>, <code>_execute_draw_phase</code>, <code>_execute_cleanup</code></td></tr>
+<tr><td>Casting</td><td><code>can_cast_spell</code> → <code>start_spell_cast</code> → <code>finalize_pending_spell</code> → <code>resolve_top_of_stack</code> → <code>_resolve_spell</code></td></tr>
+<tr><td>Mana</td><td><code>_can_pay_mana_cost</code>, <code>_get_mana_sources</code>, <code>_effective_mana_cost</code>, <code>_apply_convoke_to_cost</code></td></tr>
+<tr><td>Combat</td><td><code>declare_attackers</code>, <code>declare_blockers</code>, <code>can_legally_block</code>, <code>_execute_combat_damage</code>, <code>_execute_damage_step</code></td></tr>
+<tr><td>SBAs</td><td><code>_check_state_based_actions</code></td></tr>
+<tr><td>Priority</td><td><code>pass_priority</code>, <code>execute_opponent_priority</code>, <code>execute_opponent_turn</code></td></tr>
+<tr><td>Lands</td><td><code>can_play_land</code>, <code>play_land</code></td></tr>
+</tbody>
+</table>
+
+<div class="note">
+  <span class="label">The one architectural fact</span>
+  <p>Nearly every <code>RulesEngine</code> method has the shape
+  <code>(GameState, args) -&gt; GameState</code>. Hence <code>MTGEnv.step()</code>
+  reads as a long dispatch table: decode an <code>int</code> into the right verb,
+  reassign <code>self.state</code>.</p>
+</div>
+
+<h2>The two contracts you must not break</h2>
+
+<table>
+<thead><tr><th>Contract</th><th>Value</th><th>Enforced in</th></tr></thead>
+<tbody>
+<tr><td>Observation dimension</td><td><code>3077</code></td><td><code>observation.py</code> / <code>ObservationConfig</code></td></tr>
+<tr><td>Action space size</td><td><code>478</code></td><td><code>action_mask.py</code> / <code>ActionIndexMap</code></td></tr>
+</tbody>
+</table>
+
+<p>Coupled: every hand slot the action mask can address must also be visible in the
+observation. <code>mtg_env.py</code> asserts this at construction (comment at line
+116). Raising a hand cap on one side without the other is the classic way to break
+this repo.</p>
+
+<h2>The 478 actions</h2>
+
+<pre><code>  0        PASS
+  1–2      KEEP_HAND / MULLIGAN
+  3–5      PLAY_LAND[0-2]
+  6–10     CAST_SORCERY[0-4]        sorcery speed, your main phase
+ 11–15     CAST_INSTANT[0-4]        any priority window
+ 16–35     ATTACK_TOGGLE[0-19]      + confirm
+ 36–55     BLOCK_SELECT_ATTACKER[0-19]
+ 56–75     BLOCK_SELECT_BLOCKER[0-19]
+ 76+       bottom / discard / activate / target / mana-source slots
+                        (exact offsets: ActionIndexMap properties)</code></pre>
+
+<p class="caption">Don't hardcode these offsets. <code>play_land_start</code>,
+<code>cast_instant_start</code>, and friends are computed properties on
+<code>ActionIndexMap</code>.</p>
+
+<h2>Commands</h2>
+
+<pre><code>uv sync                    # install
+uv run pytest              # fast tests (skips 'slow')
+uv run pytest -m ""        # everything — run before calling a change done
+uv run ruff check .
+uv run mtg-gameplay        # watch a game
+uv run mtg-train --help
+uv run mtg-research --help</code></pre>
+
+<footer class="footer">
+  <p><strong>Lessons using this reference:</strong>
+    <a href="../lessons/0001-the-loop.html">0001 — The loop you are going to optimise</a></p>
+  <p><a href="../MISSION.md">Mission</a> · <a href="../RESOURCES.md">Resources</a></p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,296 @@
+/* ============================================================
+   mtg-agent teaching workspace — shared stylesheet
+   Tufte-adjacent: warm paper, serif body, wide margin for notes.
+   Every lesson and reference doc links this file.
+   ============================================================ */
+
+:root {
+  --paper:      #fffcf5;
+  --ink:        #16130d;
+  --ink-soft:   #5c5546;
+  --ink-faint:  #948a75;
+  --rule:       #e2dac6;
+  --accent:     #8b2f1d;  /* mountain red */
+  --accent-alt: #1d4e6b;  /* island blue */
+  --code-bg:    #f4efe2;
+  --ok:         #2e6b3e;
+  --no:         #9c2b20;
+
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --sans:  -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, sans-serif;
+  --mono:  "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+/* ---------- base ---------- */
+
+html { font-size: 17px; }
+
+body {
+  font-family: var(--serif);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.62;
+  margin: 0;
+  padding: 4rem 2rem 8rem;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 43rem; margin: 0 auto; }
+
+/* ---------- masthead ---------- */
+
+.masthead {
+  border-top: 3px solid var(--accent);
+  padding-top: 1.1rem;
+  margin-bottom: 3rem;
+}
+
+.eyebrow {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin: 0 0 0.5rem;
+}
+
+h1 {
+  font-weight: 400;
+  font-size: 2.3rem;
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.8rem;
+}
+
+.standfirst {
+  font-size: 1.1rem;
+  color: var(--ink-soft);
+  font-style: italic;
+  margin: 0;
+}
+
+h2 {
+  font-weight: 400;
+  font-size: 1.45rem;
+  letter-spacing: -0.01em;
+  margin: 3.2rem 0 0.9rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+h3 {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.86rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 2.2rem 0 0.6rem;
+}
+
+p { margin: 0 0 1.1rem; }
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:hover { background: #f6e9df; }
+
+strong { font-weight: 600; }
+
+/* ---------- code ---------- */
+
+code {
+  font-family: var(--mono);
+  font-size: 0.83em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.79rem;
+  line-height: 1.6;
+  background: var(--code-bg);
+  border-left: 3px solid var(--rule);
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  margin: 0 0 1.4rem;
+}
+pre code { background: none; padding: 0; font-size: 1em; }
+
+.caption {
+  font-family: var(--sans);
+  font-size: 0.76rem;
+  color: var(--ink-faint);
+  margin: -1rem 0 1.6rem;
+}
+
+/* ---------- tables ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+  margin: 0 0 1.6rem;
+}
+th {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: left;
+  border-bottom: 1.5px solid var(--ink-soft);
+  padding: 0.4rem 0.7rem 0.4rem 0;
+  vertical-align: bottom;
+}
+td {
+  border-bottom: 1px solid var(--rule);
+  padding: 0.5rem 0.7rem 0.5rem 0;
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+
+/* ---------- callouts ---------- */
+
+.note {
+  border-left: 3px solid var(--accent-alt);
+  background: #f2f6f8;
+  padding: 0.9rem 1.2rem;
+  margin: 0 0 1.6rem;
+  font-size: 0.93rem;
+}
+.note p:last-child { margin-bottom: 0; }
+.note .label {
+  font-family: var(--sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-alt);
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.warn { border-left-color: var(--accent); background: #fbf1ec; }
+.warn .label { color: var(--accent); }
+
+/* ---------- quiz (see assets/quiz.js) ---------- */
+
+.quiz {
+  border: 1px solid var(--rule);
+  background: #fffefb;
+  padding: 1.3rem 1.5rem;
+  margin: 0 0 1.4rem;
+}
+.quiz .q {
+  font-size: 1rem;
+  margin: 0 0 0.9rem;
+}
+.quiz .q .num {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-faint);
+  display: block;
+  margin-bottom: 0.3rem;
+}
+.quiz button.opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  padding: 0.55rem 0.8rem;
+  margin-bottom: 0.4rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.quiz button.opt:hover:not(:disabled) { border-color: var(--ink-soft); background: #fdf8ec; }
+.quiz button.opt:disabled { cursor: default; opacity: 0.55; }
+.quiz button.opt.right { border-color: var(--ok); background: #eef6ef; opacity: 1; color: var(--ok); }
+.quiz button.opt.wrong { border-color: var(--no); background: #fbeeec; opacity: 1; color: var(--no); }
+.quiz .fb {
+  font-size: 0.89rem;
+  color: var(--ink-soft);
+  margin-top: 0.8rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--rule);
+  display: none;
+}
+.quiz .fb.show { display: block; }
+.quiz .fb p:last-child { margin-bottom: 0; }
+
+.score {
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+/* ---------- recall prompt (free-response, self-graded) ---------- */
+
+.recall { border-left: 3px solid var(--ink-faint); padding-left: 1.2rem; margin: 0 0 1.6rem; }
+.recall textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  padding: 0.6rem;
+  min-height: 4.5rem;
+  resize: vertical;
+}
+.recall .reveal {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0.3rem 0;
+  margin-top: 0.6rem;
+}
+.recall .answer { display: none; margin-top: 0.9rem; font-size: 0.93rem; color: var(--ink-soft); }
+.recall .answer.show { display: block; }
+
+/* ---------- footer ---------- */
+
+.footer {
+  margin-top: 4.5rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.87rem;
+  color: var(--ink-soft);
+}
+.footer h3 { margin-top: 1.6rem; }
+.footer ul { padding-left: 1.1rem; margin: 0 0 1rem; }
+.footer li { margin-bottom: 0.35rem; }
+
+.ask {
+  font-family: var(--sans);
+  font-size: 0.83rem;
+  background: #f3efe2;
+  border: 1px dashed var(--ink-faint);
+  padding: 0.85rem 1.1rem;
+  color: var(--ink-soft);
+  margin-top: 2rem;
+}
+
+/* ---------- print ---------- */
+
+@media print {
+  body { background: #fff; padding: 0; font-size: 11pt; }
+  .quiz button.opt, .recall textarea, .recall .reveal { display: none; }
+  .quiz .fb, .recall .answer { display: block; }
+  .ask { display: none; }
+  a { color: var(--ink); text-decoration: none; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.7em; color: #777; }
+  h2 { page-break-after: avoid; }
+  pre, table, .quiz, .note { page-break-inside: avoid; }
+}
