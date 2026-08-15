@@ -25,3 +25,17 @@ Beyond what `[tool.ruff]` enforces:
 ## Where things are
 
 `README.md` documents the four CLI workflows (`mtg-train`, `mtg-eval`, `mtg-gameplay`, `mtg-research`), the action and observation spaces, the causal model, and how to add a card, archetype, agent, or causal variable. Read it before extending the environment or reproducing benchmark results.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues on `jackswisher/mtg-agent`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, each label string equal to its name. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
