@@ -1,0 +1,55 @@
+default_stages:
+  - pre-commit
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-ast
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-case-conflict
+      - id: check-added-large-files
+      - id: name-tests-test
+        args: [--pytest-test-first]
+
+  # Ruff - Fast Python linter (catches unused imports F401, unused variables F841)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Linter - checks for errors but does not auto-fix
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Formatter
+      - id: ruff-format
+
+  # Local hooks for custom validation
+  - repo: local
+    hooks:
+      # Validate Python conventions (docstrings, typing, no nested functions)
+      - id: validate-conventions
+        name: Validate Python Conventions
+        entry: python scripts/pre-commit/validate_conventions.py
+        language: python
+        types: [python]
+        exclude: ^(scripts/|tests/|notebooks/|conf/|docs/)
+
+      # Validate Gitflow branch naming on pre-commit
+      - id: check-gitflow-branch
+        name: Check Gitflow Branch Name
+        entry: python scripts/pre-commit/check_gitflow.py --skip-commit-check
+        language: python
+        pass_filenames: false
+        always_run: true
+
+      # Validate commit message format on commit-msg stage
+      - id: check-gitflow-commit-msg
+        name: Check Gitflow Commit Message
+        entry: python scripts/pre-commit/check_gitflow.py --skip-branch-check --commit-msg-file
+        language: python
+        stages: [commit-msg]
+        always_run: true

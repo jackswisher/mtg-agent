@@ -41,7 +41,6 @@ dependencies = [
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
-    "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
     "pre-commit>=3.4.0",
@@ -109,10 +108,6 @@ ignore = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.black]
-line-length = 100
-target-version = ["py310", "py311", "py312"]
-
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
@@ -135,7 +130,6 @@ markers = [
 dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
-    "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
     "pre-commit>=3.4.0",
